@@ -12,13 +12,7 @@ import org.lwjgl.glfw.GLFW;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 
-import dev.emi.emi.EmiConfig;
-import dev.emi.emi.EmiFavorites;
-import dev.emi.emi.EmiHistory;
-import dev.emi.emi.EmiPort;
-import dev.emi.emi.EmiRecipes;
-import dev.emi.emi.EmiRenderHelper;
-import dev.emi.emi.EmiUtil;
+import dev.emi.emi.*;
 import dev.emi.emi.api.EmiApi;
 import dev.emi.emi.api.recipe.EmiPlayerInventory;
 import dev.emi.emi.api.recipe.EmiRecipe;
@@ -58,6 +52,7 @@ public class BoMScreen extends Screen {
 	private Bounds batches = new Bounds(-24, -50, 48, 26);
 	private Bounds mode = new Bounds(-24, -50, 16, 16);
 	private Bounds help = new Bounds(0, 0, 16, 16);
+	private Bounds screenshot = new Bounds(18, 0, 16, 16);
 	private double offX, offY;
 	private List<Node> nodes = Lists.newArrayList();
 	private List<Cost> costs = Lists.newArrayList();
@@ -84,6 +79,7 @@ public class BoMScreen extends Screen {
 
 	public void recalculateTree() {
 		help = new Bounds(width - 18, height - 18, 16, 16);
+		screenshot = new Bounds(width - 36, height - 18, 16, 16);
 		if (BoM.tree != null) {
 			TreeVolume volume = addNewNodes(BoM.tree.goal, BoM.tree.batches, 1, 0);
 			nodes = volume.nodes;
@@ -158,7 +154,7 @@ public class BoMScreen extends Screen {
 		int scaledWidth = (int) (width / scale);
 		int scaledHeight = (int) (height / scale);
 		// TODO should be the ingredient width if higher
-		int contentWidth = nodeWidth * NODE_WIDTH;
+		int contentWidth = nodeWidth;
 		int contentHeight = nodeHeight * NODE_VERTICAL_SPACING + 80;
 		int xBound = scaledWidth / 2 + contentWidth - 100;
 		int topBound = scaledHeight * 1 / -2 + 20;
@@ -220,6 +216,15 @@ public class BoMScreen extends Screen {
 		drawTexture(matrices, help.x(), help.y(), 32, 146, help.width(), help.height());
 		RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
 
+		if (EmiConfig.recipeScreenshotButton && BoM.tree != null) {
+			if (screenshot.contains(mouseX, mouseY)) {
+				RenderSystem.setShaderColor(0.5f, 0.6f, 1f, 1f);
+			}
+			RenderSystem.setShaderTexture(0, EmiRenderHelper.WIDGETS);
+			drawTexture(matrices, screenshot.x(), screenshot.y(), 48, 146, screenshot.width(), screenshot.height());
+			RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+		}
+
 		Hover hover = getHoveredStack(mouseX, mouseY);
 		if (hover != null) {
 			hover.drawTooltip(this, matrices, mouseX, mouseY);
@@ -239,6 +244,46 @@ public class BoMScreen extends Screen {
 					.stream(I18n.translate("tooltip.emi.bom.help").split("\n"))
 					.map(s -> TooltipComponent.of(EmiPort.ordered(EmiPort.literal(s)))).toList();
 			EmiRenderHelper.drawTooltip(this, matrices, list, width - 18, height - 18);
+		}
+	}
+
+	private void renderScreenshot() {
+		if (BoM.tree != null) {
+			System.out.println("NodeWidth: " + nodeWidth);
+			System.out.println("NodeHeight: " + nodeHeight);
+
+			int contentWidth = nodeWidth + 20;
+			int contentHeight = nodeHeight * NODE_VERTICAL_SPACING + 136;
+
+			EmiScreenshotRecorder.saveScreenshot("bom-", contentWidth, contentHeight, () -> {
+				MatrixStack viewMatrices = RenderSystem.getModelViewStack();
+				viewMatrices.push();
+				viewMatrices.translate(contentWidth / 2.0, 16.0, 0);
+				RenderSystem.applyModelViewMatrix();
+
+				MatrixStack matrices = new MatrixStack();
+				int cy = nodeHeight * NODE_VERTICAL_SPACING * 2;
+				DrawableHelper.drawCenteredText(matrices, textRenderer, EmiPort.translatable("emi.total_cost"), 0, cy - 16,
+					-1);
+				if (!BoM.tree.remainders.isEmpty()) {
+					DrawableHelper.drawCenteredText(matrices, textRenderer, EmiPort.translatable("emi.leftovers"), 0,
+						cy - 16 + 40, -1);
+				}
+				for (Cost cost : costs) {
+					cost.render(matrices);
+				}
+				for (Node node : nodes) {
+					node.render(matrices, -1000, -1000, MinecraftClient.getInstance().getTickDelta());
+				}
+				drawTextWithShadow(matrices, textRenderer, EmiPort.literal("x" + BoM.tree.batches),
+					batches.x() + 6, batches.y() + batches.height() / 2 - 4, -1);
+
+				RenderSystem.setShaderTexture(0, EmiRenderHelper.WIDGETS);
+				drawTexture(matrices, mode.x(), mode.y(), BoM.craftingMode ? 16 : 0, 146, mode.width(), mode.height());
+
+				viewMatrices.pop();
+				RenderSystem.applyModelViewMatrix();
+			});
 		}
 	}
 
@@ -438,6 +483,9 @@ public class BoMScreen extends Screen {
 			MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.0f));
 			BoM.craftingMode = !BoM.craftingMode;
 			recalculateTree();
+		} else if (EmiConfig.recipeScreenshotButton && BoM.tree != null && screenshot.contains((int) mouseX, (int) mouseY)) {
+			MinecraftClient.getInstance().getSoundManager().play(PositionedSoundInstance.master(SoundEvents.UI_BUTTON_CLICK, 1.0f));
+			renderScreenshot();
 		}
 		Function<EmiBind, Boolean> function = bind -> bind.matchesMouse(button);
 		if (function.apply(EmiConfig.back)) {
